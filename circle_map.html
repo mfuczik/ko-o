@@ -231,7 +231,7 @@ function compute() {
 
   if (x0 === null || x0 < 0 || x0 > 1) { showError('Nieprawidłowy punkt startowy (podaj ułamek jak 4/624 lub liczbę z [0,1])'); return; }
   if (isNaN(n) || n < 2) { showError('n musi być liczbą całkowitą ≥ 2'); return; }
-  if (isNaN(steps) || steps < 1 || steps > 60) { showError('Liczba kroków: 1–60'); return; }
+  if (isNaN(steps) || steps < 1 || steps > 1000) { showError('Liczba kroków: 1–1000'); return; }
 
   const pts = [mod1(x0)];
   for (let i = 0; i < steps; i++) pts.push(mod1(n * pts[pts.length - 1]));
