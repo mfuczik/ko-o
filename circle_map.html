@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Circle Map Visualizer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: #060809;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+    font-family: 'Courier New', monospace;
+    color: #b0d4f1;
+  }
+  h1 { color: rgba(100,180,255,0.9); font-size: 20px; letter-spacing: 0.12em; margin-bottom: 4px; }
+  .subtitle { color: rgba(100,180,255,0.35); font-size: 11px; letter-spacing: 0.12em; margin-bottom: 24px; }
+  .layout { display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; width: 100%; max-width: 900px; }
+  canvas { border-radius: 12px; border: 1px solid rgba(100,180,255,0.1); display: block; }
+  .panel { display: flex; flex-direction: column; gap: 12px; min-width: 210px; max-width: 250px; }
+  label { color: rgba(150,200,255,0.55); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+  input[type=text], input[type=number] {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(100,180,255,0.2);
+    border-radius: 6px;
+    color: #b0d4f1;
+    padding: 7px 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.2s;
+  }
+  input:focus { border-color: rgba(100,180,255,0.5); }
+  button {
+    background: rgba(100,180,255,0.12);
+    border: 1px solid rgba(100,180,255,0.35);
+    border-radius: 8px;
+    color: rgba(150,210,255,0.95);
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+  }
+  button:hover:not(:disabled) { background: rgba(100,180,255,0.2); }
+  button:disabled { opacity: 0.35; cursor: default; }
+  .error { color: #ff6b6b; font-size: 12px; background: rgba(255,100,100,0.08); padding: 8px; border-radius: 6px; border: 1px solid rgba(255,100,100,0.2); }
+  .orbit-box { background: rgba(255,255,255,0.02); border: 1px solid rgba(100,180,255,0.1); border-radius: 8px; overflow: hidden; }
+  .orbit-title { padding: 7px 12px; border-bottom: 1px solid rgba(100,180,255,0.1); color: rgba(100,180,255,0.45); font-size: 10px; letter-spacing: 0.1em; }
+  .orbit-list { max-height: 280px; overflow-y: auto; }
+  .orbit-row { display: flex; justify-content: space-between; padding: 4px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<h1>CIRCLE MAP VISUALIZER</h1>
+<div class="subtitle">E_n : S¹ → S¹ ,  x ↦ nx mod 1</div>
+
+<div class="layout">
+  <canvas id="canvas" width="460" height="460"></canvas>
+
+  <div class="panel">
+    <div>
+      <label>Punkt startowy x₀</label>
+      <input type="text" id="startInput" value="4/624" placeholder="np. 4/624">
+    </div>
+    <div>
+      <label>n (odwzorowanie E_n)</label>
+      <input type="number" id="nVal" value="5" min="2">
+    </div>
+    <div>
+      <label>Liczba kroków</label>
+      <input type="number" id="stepsVal" value="8" min="1" max="60">
+    </div>
+    <div id="errorBox" class="error" style="display:none"></div>
+    <button id="runBtn" onclick="compute()">▶  URUCHOM</button>
+    <div class="orbit-box" id="orbitBox" style="display:none">
+      <div class="orbit-title">ORBITA</div>
+      <div class="orbit-list" id="orbitList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const TWO_PI = 2 * Math.PI;
+let animTimeout = null;
+
+function mod1(x) { return ((x % 1) + 1) % 1; }
+
+function parseFraction(str) {
+  str = str.trim();
+  if (str.includes('/')) {
+    const [a, b] = str.split('/').map(s => parseFloat(s.trim()));
+    if (!isNaN(a) && !isNaN(b) && b !== 0) return a / b;
+  }
+  const v = parseFloat(str);
+  return isNaN(v) ? null : v;
+}
+
+function toNiceStr(x) {
+  const tol = 1e-9;
+  for (let d = 1; d <= 1000; d++) {
+    const n = Math.round(x * d);
+    if (Math.abs(n / d - x) < tol) {
+      if (n === 0) return '0';
+      if (n === d) return '1';
+      return `${n}/${d}`;
+    }
+  }
+  return x.toFixed(6);
+}
+
+function angleOf(x) { return mod1(x) * TWO_PI - Math.PI / 2; }
+
+function ptOn(cx, cy, r, a) { return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }
+
+function hsl(h, s, l, a = 1) { return `hsla(${h},${s}%,${l}%,${a})`; }
+
+function drawCircle(pts, highlight) {
+  const W = canvas.width, H = canvas.height;
+  const cx = W / 2, cy = H / 2;
+  const R = Math.min(W, H) * 0.38;
+
+  ctx.clearRect(0, 0, W, H);
+
+  // background
+  const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.7);
+  bg.addColorStop(0, '#0d1117');
+  bg.addColorStop(1, '#060809');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // ticks
+  for (let i = 0; i < 20; i++) {
+    const a = (i / 20) * TWO_PI - Math.PI / 2;
+    const [x1, y1] = ptOn(cx, cy, R - 6, a);
+    const [x2, y2] = ptOn(cx, cy, R + 6, a);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.strokeStyle = 'rgba(100,180,255,0.15)'; ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  // circle
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TWO_PI);
+  ctx.strokeStyle = 'rgba(100,180,255,0.3)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+  // label
+  ctx.font = 'bold 14px Courier New';
+  ctx.fillStyle = 'rgba(150,200,255,0.4)';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('S¹', cx, cy);
+
+  if (!pts || pts.length === 0) return;
+  const vis = pts.slice(0, highlight);
+
+  // chords + arrows
+  for (let i = 0; i < vis.length - 1; i++) {
+    const t = i / Math.max(vis.length - 2, 1);
+    const hue = 180 + t * 120;
+    const alpha = 0.2 + 0.6 * (i / (vis.length - 1));
+    const a1 = angleOf(vis[i]), a2 = angleOf(vis[i + 1]);
+    const [x1, y1] = ptOn(cx, cy, R, a1);
+    const [x2, y2] = ptOn(cx, cy, R, a2);
+
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+    ctx.strokeStyle = hsl(hue, 80, 60, alpha); ctx.lineWidth = 1.5; ctx.stroke();
+
+    const dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx*dx + dy*dy);
+    if (len > 0) {
+      const ux = dx/len, uy = dy/len;
+      const mx = (x1+x2)/2, my = (y1+y2)/2, sz = 7;
+      ctx.beginPath();
+      ctx.moveTo(mx + ux*sz, my + uy*sz);
+      ctx.lineTo(mx - ux*sz - uy*sz*0.5, my - uy*sz + ux*sz*0.5);
+      ctx.lineTo(mx - ux*sz + uy*sz*0.5, my - uy*sz - ux*sz*0.5);
+      ctx.closePath();
+      ctx.fillStyle = hsl(hue, 80, 65, alpha * 1.5); ctx.fill();
+    }
+  }
+
+  // dots + labels
+  for (let i = 0; i < vis.length; i++) {
+    const t = i / Math.max(vis.length - 1, 1);
+    const hue = 180 + t * 120;
+    const angle = angleOf(vis[i]);
+    const [px, py] = ptOn(cx, cy, R, angle);
+    const isFirst = i === 0;
+
+    // glow
+    const g = ctx.createRadialGradient(px, py, 0, px, py, isFirst ? 16 : 10);
+    g.addColorStop(0, hsl(hue, 90, 70, 0.35)); g.addColorStop(1, 'transparent');
+    ctx.beginPath(); ctx.arc(px, py, isFirst ? 16 : 10, 0, TWO_PI);
+    ctx.fillStyle = g; ctx.fill();
+
+    // dot
+    ctx.beginPath(); ctx.arc(px, py, isFirst ? 6 : 3.5, 0, TWO_PI);
+    ctx.fillStyle = hsl(hue, isFirst ? 90 : 70, isFirst ? 75 : 65); ctx.fill();
+
+    // fraction label
+    const [lx, ly] = ptOn(cx, cy, R + 24, angle);
+    ctx.font = (isFirst ? 'bold ' : '') + '10px Courier New';
+    ctx.fillStyle = hsl(hue, 70, 75, 0.9);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(toNiceStr(vis[i]), lx, ly);
+
+    // step number
+    if (i > 0) {
+      const [nx, ny] = ptOn(cx, cy, R - 18, angle);
+      ctx.font = '9px Courier New';
+      ctx.fillStyle = hsl(hue, 60, 60, 0.6);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(i), nx, ny);
+    }
+  }
+}
+
+function compute() {
+  const errorBox = document.getElementById('errorBox');
+  errorBox.style.display = 'none';
+
+  const x0 = parseFraction(document.getElementById('startInput').value);
+  const n = parseInt(document.getElementById('nVal').value);
+  const steps = parseInt(document.getElementById('stepsVal').value);
+
+  if (x0 === null || x0 < 0 || x0 > 1) { showError('Nieprawidłowy punkt startowy (podaj ułamek jak 4/624 lub liczbę z [0,1])'); return; }
+  if (isNaN(n) || n < 2) { showError('n musi być liczbą całkowitą ≥ 2'); return; }
+  if (isNaN(steps) || steps < 1 || steps > 60) { showError('Liczba kroków: 1–60'); return; }
+
+  const pts = [mod1(x0)];
+  for (let i = 0; i < steps; i++) pts.push(mod1(n * pts[pts.length - 1]));
+
+  // orbit table
+  const orbitBox = document.getElementById('orbitBox');
+  const orbitList = document.getElementById('orbitList');
+  orbitList.innerHTML = '';
+  orbitBox.style.display = 'block';
+  pts.forEach((x, i) => {
+    const hue = 180 + (i / Math.max(pts.length - 1, 1)) * 120;
+    const row = document.createElement('div');
+    row.className = 'orbit-row';
+    row.innerHTML = `<span style="color:hsl(${hue},60%,55%)">${i === 0 ? 'x₀' : `E${n}^${i}`}</span><span style="color:hsl(${hue},70%,72%)">${toNiceStr(x)}</span>`;
+    orbitList.appendChild(row);
+  });
+
+  // animate
+  if (animTimeout) clearTimeout(animTimeout);
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  btn.textContent = 'ANIMATING...';
+
+  let frame = 1;
+  function step() {
+    drawCircle(pts, frame);
+    frame++;
+    if (frame <= pts.length) {
+      animTimeout = setTimeout(() => requestAnimationFrame(step), 200);
+    } else {
+      btn.disabled = false;
+      btn.textContent = '▶  URUCHOM';
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+function showError(msg) {
+  const e = document.getElementById('errorBox');
+  e.textContent = msg;
+  e.style.display = 'block';
+}
+
+// init
+drawCircle([], 0);
+</script>
+</body>
+</html>
