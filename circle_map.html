@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Circle Map Visualizer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: #060809;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px;
+    font-family: 'Courier New', monospace;
+    color: #b0d4f1;
+  }
+  h1 { color: rgba(100,180,255,0.9); font-size: 20px; letter-spacing: 0.12em; margin-bottom: 4px; }
+  .subtitle { color: rgba(100,180,255,0.35); font-size: 11px; letter-spacing: 0.12em; margin-bottom: 24px; }
+
+  .layout {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+    max-width: 960px;
+    align-items: flex-start;
+  }
+
+  /* Canvas zawsze kwadratowy */
+  .canvas-wrap {
+    flex: 0 0 auto;
+    width: min(460px, 90vw);
+    height: min(460px, 90vw);
+    position: relative;
+  }
+  #canvas {
+    width: 100%;
+    height: 100%;
+    border-radius: 12px;
+    border: 1px solid rgba(100,180,255,0.1);
+    display: block;
+  }
+
+  .panel { display: flex; flex-direction: column; gap: 12px; min-width: 220px; max-width: 260px; }
+
+  label { color: rgba(150,200,255,0.55); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+
+  input[type=text], input[type=number] {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(100,180,255,0.2);
+    border-radius: 6px;
+    color: #b0d4f1;
+    padding: 7px 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    outline: none;
+    width: 100%;
+    transition: border-color 0.2s;
+  }
+  input:focus { border-color: rgba(100,180,255,0.5); }
+
+  .sym-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 5px; }
+  .sym-btn {
+    background: rgba(100,180,255,0.07);
+    border: 1px solid rgba(100,180,255,0.18);
+    border-radius: 5px;
+    color: rgba(180,220,255,0.85);
+    padding: 5px 2px;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .sym-btn:hover { background: rgba(100,180,255,0.18); color: #fff; }
+
+  .ex-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; margin-top: 5px; }
+  .ex-btn {
+    background: rgba(100,180,255,0.05);
+    border: 1px solid rgba(100,180,255,0.15);
+    border-radius: 5px;
+    color: rgba(150,210,255,0.7);
+    padding: 4px 4px;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s;
+    text-align: center;
+  }
+  .ex-btn:hover { background: rgba(100,180,255,0.15); color: rgba(150,210,255,1); }
+
+  .run-btn {
+    background: rgba(100,180,255,0.12);
+    border: 1px solid rgba(100,180,255,0.35);
+    border-radius: 8px;
+    color: rgba(150,210,255,0.95);
+    padding: 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: all 0.2s;
+    width: 100%;
+  }
+  .run-btn:hover:not(:disabled) { background: rgba(100,180,255,0.2); }
+  .run-btn:disabled { opacity: 0.35; cursor: default; }
+
+  .msg-error { color: #ff6b6b; font-size: 12px; background: rgba(255,100,100,0.08); padding: 8px; border-radius: 6px; border: 1px solid rgba(255,100,100,0.2); }
+  .msg-ok    { color: #6bffb8; font-size: 12px; background: rgba(100,255,180,0.06); padding: 8px; border-radius: 6px; border: 1px solid rgba(100,255,180,0.2); }
+  .msg-warn  { color: #ffd06b; font-size: 12px; background: rgba(255,200,100,0.07); padding: 8px; border-radius: 6px; border: 1px solid rgba(255,200,100,0.2); }
+
+  /* ── STAT BOX ── */
+  .stat-box {
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(100,180,255,0.12);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .stat-title {
+    padding: 7px 12px;
+    border-bottom: 1px solid rgba(100,180,255,0.1);
+    color: rgba(100,180,255,0.45);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+  }
+  .stat-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .stat-row  { display: flex; justify-content: space-between; align-items: center; font-size: 12px; }
+  .stat-lbl  { color: rgba(150,200,255,0.5); }
+  .stat-val  { color: #b0d4f1; font-size: 14px; font-weight: bold; }
+  .stat-bar-wrap { height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
+  .stat-bar      { height: 100%; border-radius: 3px; transition: width 0.4s; background: linear-gradient(90deg, rgba(100,200,255,0.6), rgba(100,255,180,0.6)); }
+
+  .orbit-box   { background: rgba(255,255,255,0.02); border: 1px solid rgba(100,180,255,0.1); border-radius: 8px; overflow: hidden; }
+  .orbit-title { padding: 7px 12px; border-bottom: 1px solid rgba(100,180,255,0.1); color: rgba(100,180,255,0.45); font-size: 10px; letter-spacing: 0.1em; }
+  .orbit-list  { max-height: 200px; overflow-y: auto; }
+  .orbit-row   { display: flex; justify-content: space-between; padding: 4px 12px; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 11px; gap: 6px; }
+  .hint        { color: rgba(100,180,255,0.3); font-size: 10px; text-align: center; }
+  .sec-label   { color: rgba(150,200,255,0.4); font-size: 10px; letter-spacing: 0.07em; margin-bottom: 2px; }
+</style>
+</head>
+<body>
+
+<h1>CIRCLE MAP VISUALIZER</h1>
+<div class="subtitle">E_n : S&#185; &rarr; S&#185; ,&nbsp; x &rarr; nx mod 1</div>
+
+<div class="layout">
+
+  <div class="canvas-wrap">
+    <canvas id="canvas" width="460" height="460"></canvas>
+  </div>
+
+  <div class="panel">
+
+    <div>
+      <label>Punkt startowy x&#8320;</label>
+      <input type="text" id="startInput" value="4/624" placeholder="np. 4/624 lub 1/sqrt(5)">
+
+      <div style="margin-top:7px">
+        <div class="sec-label">Wstaw symbol</div>
+        <div class="sym-grid">
+          <button class="sym-btn" onclick="ins('sqrt(')">&#x221A;(</button>
+          <button class="sym-btn" onclick="ins('cbrt(')">&#x221B;(</button>
+          <button class="sym-btn" onclick="ins('pi')">&#x3C0;</button>
+          <button class="sym-btn" onclick="ins('e')">e</button>
+          <button class="sym-btn" onclick="ins('exp(')">e^(</button>
+          <button class="sym-btn" onclick="ins('log(')">ln(</button>
+          <button class="sym-btn" onclick="ins('sin(')">sin(</button>
+          <button class="sym-btn" onclick="ins('cos(')">cos(</button>
+          <button class="sym-btn" onclick="ins('/')">&#247;</button>
+          <button class="sym-btn" onclick="ins('*')">&#215;</button>
+          <button class="sym-btn" onclick="ins('(')">( </button>
+          <button class="sym-btn" onclick="ins(')')"> )</button>
+        </div>
+      </div>
+
+      <div style="margin-top:7px">
+        <div class="sec-label">Przyk&#322;ady</div>
+        <div class="ex-grid">
+          <button class="ex-btn" onclick="setEx('4/624')">4/624</button>
+          <button class="ex-btn" onclick="setEx('1/sqrt(5)')">1/&#x221A;5</button>
+          <button class="ex-btn" onclick="setEx('1/sqrt(2)')">1/&#x221A;2</button>
+          <button class="ex-btn" onclick="setEx('(sqrt(5)-1)/2')">(&#x221A;5&#8722;1)/2</button>
+          <button class="ex-btn" onclick="setEx('pi-3')">&#x3C0;&#8722;3</button>
+          <button class="ex-btn" onclick="setEx('exp(1)-2')">e&#8722;2</button>
+          <button class="ex-btn" onclick="setEx('1/3')">1/3</button>
+          <button class="ex-btn" onclick="setEx('1/8')">1/8</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <label>n (odwzorowanie E_n)</label>
+      <input type="number" id="nVal" value="5" min="2">
+    </div>
+    <div>
+      <label>Liczba krok&#xF3;w (1&#8211;1000)</label>
+      <input type="number" id="stepsVal" value="8" min="1" max="1000">
+    </div>
+
+    <div id="msgBox" style="display:none"></div>
+    <button class="run-btn" id="runBtn" onclick="compute()">&#9654;  URUCHOM</button>
+    <div class="hint" id="hint"></div>
+
+    <!-- STAT BOX -->
+    <div class="stat-box" id="statBox" style="display:none">
+      <div class="stat-title">PIERWSZA &#262;WIER&#262; &nbsp;[0, 0.25)</div>
+      <div class="stat-body">
+        <div class="stat-row">
+          <span class="stat-lbl">Trafienia</span>
+          <span class="stat-val" id="statCount">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-lbl">Wszystkich punkt&#xF3;w</span>
+          <span class="stat-val" id="statTotal">0</span>
+        </div>
+        <div class="stat-row">
+          <span class="stat-lbl">Cz&#x119;sto&#347;&#263;</span>
+          <span class="stat-val" id="statFreq">0%</span>
+        </div>
+        <div class="stat-bar-wrap">
+          <div class="stat-bar" id="statBar" style="width:0%"></div>
+        </div>
+        <div class="stat-row" style="margin-top:2px">
+          <span class="stat-lbl">Oczekiwana (1/4)</span>
+          <span style="color:rgba(150,200,255,0.4);font-size:12px">25.00%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="orbit-box" id="orbitBox" style="display:none">
+      <div class="orbit-title" id="orbitTitle">ORBITA</div>
+      <div class="orbit-list" id="orbitList"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ── helpers ── */
+function mod1f(x) { return ((x % 1) + 1) % 1; }
+
+function ins(s) {
+  var el = document.getElementById('startInput');
+  var st = el.selectionStart, en = el.selectionEnd;
+  el.value = el.value.slice(0, st) + s + el.value.slice(en);
+  el.selectionStart = el.selectionEnd = st + s.length;
+  el.focus();
+}
+function setEx(v) { document.getElementById('startInput').value = v; }
+
+/* ── parser wyrazen ── */
+function parseExpr(raw) {
+  var s = raw.trim()
+    .replace(/\s+/g, '')
+    .toLowerCase()
+    .replace(/\^/g, '**')
+    .replace(/\bpi\b/g, '(3.141592653589793)')
+    .replace(/\be\b(?!\w)/g, '(2.718281828459045)')
+    .replace(/sqrt\(/g,  'Math.sqrt(')
+    .replace(/cbrt\(/g,  'Math.cbrt(')
+    .replace(/exp\(/g,   'Math.exp(')
+    .replace(/log\(/g,   'Math.log(')
+    .replace(/sin\(/g,   'Math.sin(')
+    .replace(/cos\(/g,   'Math.cos(')
+    .replace(/tan\(/g,   'Math.tan(')
+    .replace(/abs\(/g,   'Math.abs(');
+  try {
+    var v = Function('"use strict"; return (' + s + ')')();
+    if (typeof v !== 'number' || isNaN(v) || !isFinite(v)) return null;
+    return v;
+  } catch(e) { return null; }
+}
+
+/* ── arytmetyka ulamkowa BigInt ── */
+function gcd(a, b) {
+  if (a < 0n) a = -a;
+  if (b < 0n) b = -b;
+  while (b) { var t = b; b = a % b; a = t; }
+  return a;
+}
+function makeFrac(p, q) {
+  if (q < 0n) { p = -p; q = -q; }
+  var g = gcd(p < 0n ? -p : p, q);
+  p = p / g; q = q / g;
+  p = ((p % q) + q) % q;
+  return { p: p, q: q };
+}
+function tryParseFrac(str) {
+  str = str.trim();
+  if (!/^-?\d+\s*\/\s*\d+$/.test(str)) return null;
+  var parts = str.split('/');
+  try {
+    var p = BigInt(parts[0].trim());
+    var q = BigInt(parts[1].trim());
+    if (q === 0n) return null;
+    return makeFrac(p, q);
+  } catch(e) { return null; }
+}
+function fracToFloat(f) { return Number(f.p) / Number(f.q); }
+function fracToStr(f) {
+  if (f.p === 0n) return '0';
+  return f.p.toString() + '/' + f.q.toString();
+}
+function stepFrac(f, n) {
+  return makeFrac(BigInt(n) * f.p, f.q);
+}
+
+/* ── label dla floata ── */
+function floatLabel(x) {
+  var tol = 1e-10;
+  for (var d = 1; d <= 10000; d++) {
+    var nr = Math.round(x * d);
+    if (Math.abs(nr / d - x) < tol) {
+      if (nr === 0) return '0';
+      if (nr === d) return '1';
+      return nr + '/' + d;
+    }
+  }
+  return x.toPrecision(8);
+}
+
+/* ── canvas ── */
+var canvas = document.getElementById('canvas');
+var ctx    = canvas.getContext('2d');
+var TWO_PI = 2 * Math.PI;
+var animTimeout = null;
+var ANIM_THRESHOLD = 80;
+
+function angleOf(x) { return x * TWO_PI - Math.PI / 2; }
+function ptOn(cx, cy, r, a) { return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; }
+function hsla(h, s, l, a) {
+  if (a === undefined) a = 1;
+  return 'hsla(' + h + ',' + s + '%,' + l + '%,' + a + ')';
+}
+
+function drawCircle(floats, labels, highlight) {
+  /* Zawsze rysuj na kwadracie — używaj rozmiaru atrybutu canvas, nie CSS */
+  var W = canvas.width, H = canvas.height;
+  var cx = W / 2, cy = H / 2;
+  var R  = Math.min(W, H) * 0.38;
+
+  ctx.clearRect(0, 0, W, H);
+
+  var bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(W, H) * 0.7);
+  bg.addColorStop(0, '#0d1117'); bg.addColorStop(1, '#060809');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+  /* podswietlenie pierwszej cwiartki [0, 0.25) */
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.arc(cx, cy, R, angleOf(0), angleOf(0.25), false);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(100,255,180,0.05)';
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, angleOf(0), angleOf(0.25), false);
+  ctx.strokeStyle = 'rgba(100,255,180,0.25)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  /* etykieta cwiartki */
+  var midA = angleOf(0.125);
+  var lx = cx + (R + 18) * Math.cos(midA);
+  var ly = cy + (R + 18) * Math.sin(midA);
+  ctx.font = '9px Courier New';
+  ctx.fillStyle = 'rgba(100,255,180,0.45)';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('[0,\xBC)', lx, ly);
+
+  /* ticki */
+  for (var i = 0; i < 20; i++) {
+    var a = (i / 20) * TWO_PI - Math.PI / 2;
+    var p1 = ptOn(cx, cy, R - 6, a), p2 = ptOn(cx, cy, R + 6, a);
+    ctx.beginPath(); ctx.moveTo(p1[0], p1[1]); ctx.lineTo(p2[0], p2[1]);
+    ctx.strokeStyle = 'rgba(100,180,255,0.15)'; ctx.lineWidth = 1; ctx.stroke();
+  }
+
+  /* okrag */
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, TWO_PI);
+  ctx.strokeStyle = 'rgba(100,180,255,0.3)'; ctx.lineWidth = 1.5; ctx.stroke();
+
+  /* etykieta srodek */
+  ctx.font = 'bold 14px Courier New'; ctx.fillStyle = 'rgba(150,200,255,0.4)';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('S\xB9', cx, cy);
+
+  if (!floats || floats.length === 0) return;
+  var vis  = floats.slice(0, highlight);
+  var many = vis.length > 80;
+
+  /* ciecia + strzalki */
+  for (var i = 0; i < vis.length - 1; i++) {
+    var t     = i / Math.max(vis.length - 2, 1);
+    var hue   = 180 + t * 120;
+    var alpha = many ? 0.06 + 0.2 * t : 0.2 + 0.6 * (i / (vis.length - 1));
+    var a1 = angleOf(vis[i]), a2 = angleOf(vis[i + 1]);
+    var q1 = ptOn(cx, cy, R, a1), q2 = ptOn(cx, cy, R, a2);
+
+    ctx.beginPath(); ctx.moveTo(q1[0], q1[1]); ctx.lineTo(q2[0], q2[1]);
+    ctx.strokeStyle = hsla(hue, 80, 60, alpha);
+    ctx.lineWidth = many ? 0.5 : 1.5; ctx.stroke();
+
+    if (!many) {
+      var dx = q2[0]-q1[0], dy = q2[1]-q1[1], len = Math.sqrt(dx*dx+dy*dy);
+      if (len > 0) {
+        var ux=dx/len, uy=dy/len, mx=(q1[0]+q2[0])/2, my=(q1[1]+q2[1])/2, sz=7;
+        ctx.beginPath();
+        ctx.moveTo(mx+ux*sz,           my+uy*sz);
+        ctx.lineTo(mx-ux*sz-uy*sz*0.5, my-uy*sz+ux*sz*0.5);
+        ctx.lineTo(mx-ux*sz+uy*sz*0.5, my-uy*sz-ux*sz*0.5);
+        ctx.closePath();
+        ctx.fillStyle = hsla(hue, 80, 65, alpha*1.5); ctx.fill();
+      }
+    }
+  }
+
+  /* punkty + etykiety */
+  for (var i = 0; i < vis.length; i++) {
+    var t   = i / Math.max(vis.length - 1, 1);
+    var hue = 180 + t * 120;
+    var ang = angleOf(vis[i]);
+    var pp  = ptOn(cx, cy, R, ang);
+    var px  = pp[0], py = pp[1];
+    var isFirst = (i === 0), isLast = (i === vis.length - 1);
+    var inQ1 = (vis[i] >= 0 && vis[i] < 0.25);
+
+    if (many && !isFirst && !isLast) {
+      ctx.beginPath(); ctx.arc(px, py, inQ1 ? 3 : 1.5, 0, TWO_PI);
+      ctx.fillStyle = inQ1 ? 'rgba(100,255,180,0.9)' : hsla(hue, 70, 65, 0.7);
+      ctx.fill(); continue;
+    }
+
+    var gr = ctx.createRadialGradient(px, py, 0, px, py, isFirst ? 16 : 10);
+    gr.addColorStop(0, hsla(hue, 90, 70, 0.35)); gr.addColorStop(1, 'transparent');
+    ctx.beginPath(); ctx.arc(px, py, isFirst ? 16 : 10, 0, TWO_PI);
+    ctx.fillStyle = gr; ctx.fill();
+
+    ctx.beginPath(); ctx.arc(px, py, isFirst ? 6 : isLast ? 5 : 3.5, 0, TWO_PI);
+    ctx.fillStyle = inQ1 ? 'rgba(100,255,180,0.95)' : hsla(hue, isFirst ? 90 : 70, isFirst ? 75 : 65);
+    ctx.fill();
+
+    var lp = ptOn(cx, cy, R + 24, ang);
+    ctx.font = (isFirst ? 'bold ' : '') + '10px Courier New';
+    ctx.fillStyle = hsla(hue, 70, 75, 0.9);
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(labels[i] || '', lp[0], lp[1]);
+
+    if (i > 0) {
+      var np = ptOn(cx, cy, R - 18, ang);
+      ctx.font = '9px Courier New'; ctx.fillStyle = hsla(hue, 60, 60, 0.6);
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(String(i), np[0], np[1]);
+    }
+  }
+}
+
+/* ── licznik cwiartki ── */
+function updateStats(floats, upTo) {
+  var vis = floats.slice(0, upTo);
+  var count = 0;
+  for (var i = 0; i < vis.length; i++) {
+    if (vis[i] >= 0 && vis[i] < 0.25) count++;
+  }
+  var total = vis.length;
+  var pct   = total > 0 ? (count / total * 100) : 0;
+
+  document.getElementById('statBox').style.display  = 'block';
+  document.getElementById('statCount').textContent  = count;
+  document.getElementById('statTotal').textContent  = total;
+  document.getElementById('statFreq').textContent   = pct.toFixed(2) + '%';
+  document.getElementById('statBar').style.width    = Math.min(pct, 100) + '%';
+}
+
+/* ── komunikaty ── */
+function showMsg(msg, cls) {
+  var b = document.getElementById('msgBox');
+  b.textContent = msg; b.className = cls; b.style.display = 'block';
+}
+function hideMsg() { document.getElementById('msgBox').style.display = 'none'; }
+
+/* ── glowna logika ── */
+function compute() {
+  hideMsg();
+  document.getElementById('hint').textContent = '';
+  document.getElementById('statBox').style.display = 'none';
+
+  var raw   = document.getElementById('startInput').value.trim();
+  var n     = parseInt(document.getElementById('nVal').value);
+  var steps = parseInt(document.getElementById('stepsVal').value);
+
+  if (isNaN(n) || n < 2)                         { showMsg('n musi byc liczba calkowita >= 2', 'msg-error'); return; }
+  if (isNaN(steps) || steps < 1 || steps > 1000) { showMsg('Liczba krokow: 1-1000', 'msg-error'); return; }
+
+  var pureFrac = tryParseFrac(raw);
+  var floats, labels;
+
+  if (pureFrac) {
+    var fracs = [pureFrac];
+    floats = [fracToFloat(pureFrac)];
+    labels = [fracToStr(pureFrac)];
+    var periodFound = -1;
+
+    for (var i = 0; i < steps; i++) {
+      var nxt = stepFrac(fracs[fracs.length - 1], n);
+      fracs.push(nxt);
+      floats.push(fracToFloat(nxt));
+      labels.push(fracToStr(nxt));
+      if (periodFound < 0 && nxt.p === pureFrac.p && nxt.q === pureFrac.q)
+        periodFound = i + 1;
+    }
+
+    if (periodFound > 0)
+      showMsg('\u2713 Orbita zamknieta \u2014 dokladny okres = ' + periodFound, 'msg-ok');
+    else
+      showMsg('Wymierne \u2014 brak powrotu w ' + steps + ' krokach', 'msg-ok');
+
+  } else {
+    var v0 = parseExpr(raw);
+    if (v0 === null) {
+      showMsg('Nie mozna sparsowac wyrazenia. Uzyj np. 1/sqrt(5), pi-3', 'msg-error');
+      return;
+    }
+    v0 = mod1f(v0);
+
+    floats = [v0];
+    labels = [raw];
+    for (var i = 0; i < steps; i++) {
+      var nxt = mod1f(n * floats[floats.length - 1]);
+      floats.push(nxt);
+      labels.push(floatLabel(nxt));
+    }
+    showMsg('\u26A0 Punkt niewymierny \u2014 arytmetyka zmiennoprzecinkowa (blad rosnie wykladniczo)', 'msg-warn');
+  }
+
+  /* tabela orbity */
+  var orbitBox   = document.getElementById('orbitBox');
+  var orbitList  = document.getElementById('orbitList');
+  var orbitTitle = document.getElementById('orbitTitle');
+  orbitList.innerHTML = '';
+  orbitBox.style.display = 'block';
+  var showMax = 200;
+  orbitTitle.textContent = 'ORBITA  (' + floats.length + ' pkt' +
+    (floats.length > showMax ? ', pierwsze ' + showMax : '') + ')';
+
+  var frag = document.createDocumentFragment();
+  var lim  = Math.min(floats.length, showMax);
+  for (var i = 0; i < lim; i++) {
+    var hue = 180 + (i / Math.max(floats.length - 1, 1)) * 120;
+    var row = document.createElement('div');
+    row.className = 'orbit-row';
+    var sp1 = document.createElement('span');
+    sp1.style.color = 'hsl(' + hue + ',60%,55%)';
+    sp1.textContent = (i === 0) ? 'x\u2080' : ('E' + n + '^' + i);
+    var sp2 = document.createElement('span');
+    sp2.style.color = 'hsl(' + hue + ',70%,72%)';
+    sp2.style.wordBreak = 'break-all';
+    sp2.textContent = labels[i];
+    row.appendChild(sp1); row.appendChild(sp2);
+    frag.appendChild(row);
+  }
+  orbitList.appendChild(frag);
+
+  /* animacja */
+  if (animTimeout) clearTimeout(animTimeout);
+  var btn = document.getElementById('runBtn');
+
+  if (steps > ANIM_THRESHOLD) {
+    drawCircle(floats, labels, floats.length);
+    updateStats(floats, floats.length);
+    document.getElementById('hint').textContent =
+      floats.length + ' krokow \u2014 rysowanie natychmiastowe';
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'ANIMATING...';
+  var frame = 1;
+  function step() {
+    drawCircle(floats, labels, frame);
+    updateStats(floats, frame);
+    frame++;
+    if (frame <= floats.length) {
+      animTimeout = setTimeout(function() { requestAnimationFrame(step); }, 200);
+    } else {
+      btn.disabled = false; btn.textContent = '\u25B6  URUCHOM';
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+drawCircle([], [], 0);
+</script>
+</body>
+</html>
